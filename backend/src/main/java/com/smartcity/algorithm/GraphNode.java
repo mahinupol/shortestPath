@@ -53,6 +53,10 @@ public class GraphNode {
         return R * c;
     }
 
+    public double[] getCoordinates() {
+        return new double[]{this.x, this.y};
+    }
+
     public String getId() {
         return id;
     }

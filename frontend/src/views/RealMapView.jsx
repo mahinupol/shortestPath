@@ -337,86 +337,150 @@ export default function RealMapView() {
     };
   };
 
+/**
+ * Safely extracts [lng, lat] coordinate numbers from any node object.
+ */
+function getNodeCoordinates(node) {
+  if (!node) return null;
+  if (Array.isArray(node.coordinates) && node.coordinates.length >= 2 && !isNaN(node.coordinates[0]) && !isNaN(node.coordinates[1])) {
+    return [Number(node.coordinates[0]), Number(node.coordinates[1])];
+  }
+  if (node.x !== undefined && node.y !== undefined && !isNaN(node.x) && !isNaN(node.y)) {
+    return [Number(node.x), Number(node.y)];
+  }
+  if (node.lng !== undefined && node.lat !== undefined && !isNaN(node.lng) && !isNaN(node.lat)) {
+    return [Number(node.lng), Number(node.lat)];
+  }
+  return null;
+}
+
   /**
-   * Synchronizes Graph, Route, and Nodes to Mapbox layers.
+   * Synchronizes Graph, Route, and Nodes to Mapbox layers with strict coordinate safety.
    */
   const updateMapLayers = useCallback(
     (graph, route, bbox) => {
       const map = mapRef.current;
       if (!map || !mapLoaded) return;
 
-      const bboxSource = map.getSource('selection-bbox');
-      if (bboxSource) {
-        bboxSource.setData(bboxToPolygonGeoJSON(bbox));
-      }
+      try {
+        const bboxSource = map.getSource('selection-bbox');
+        if (bboxSource) {
+          bboxSource.setData(bboxToPolygonGeoJSON(bbox));
+        }
 
-      const roadSource = map.getSource('road-network');
-      if (roadSource && graph?.edges) {
-        const roadFeatures = graph.edges
-          .filter((e) => !e.id.endsWith('_rev'))
-          .map((e) => ({
-            type: 'Feature',
-            geometry: {
-              type: 'LineString',
-              coordinates: e.geometry || [],
-            },
-            properties: {
-              id: e.id,
-              name: e.name,
-              blocked: e.blocked,
-              speedLimit: e.speedLimit,
-              distance: e.distance,
-            },
-          }));
+        const roadSource = map.getSource('road-network');
+        if (roadSource && graph?.edges) {
+          const roadFeatures = graph.edges
+            .filter((e) => !e.id.endsWith('_rev'))
+            .map((e) => {
+              let coords = e.geometry;
+              if (!coords || !Array.isArray(coords) || coords.length < 2 || !Array.isArray(coords[0])) {
+                const src = graph.nodes?.find((n) => n.id === e.sourceNodeId);
+                const tgt = graph.nodes?.find((n) => n.id === e.targetNodeId);
+                const c1 = getNodeCoordinates(src);
+                const c2 = getNodeCoordinates(tgt);
+                if (c1 && c2) coords = [c1, c2];
+              }
+              if (!coords || !Array.isArray(coords) || coords.length < 2) return null;
 
-        roadSource.setData({
-          type: 'FeatureCollection',
-          features: roadFeatures,
-        });
-      }
+              const validCoords = coords
+                .map((c) => (Array.isArray(c) && !isNaN(c[0]) && !isNaN(c[1]) ? [Number(c[0]), Number(c[1])] : null))
+                .filter(Boolean);
 
-      const nodeSource = map.getSource('road-nodes');
-      if (nodeSource && graph?.nodes) {
-        const nodeFeatures = graph.nodes.map((n) => ({
-          type: 'Feature',
-          geometry: {
-            type: 'Point',
-            coordinates: n.coordinates,
-          },
-          properties: {
-            id: n.id,
-            name: n.name,
-            isStart: n.id === startNodeId,
-            isTarget: n.id === targetNodeId,
-          },
-        }));
+              if (validCoords.length < 2) return null;
 
-        nodeSource.setData({
-          type: 'FeatureCollection',
-          features: nodeFeatures,
-        });
-      }
-
-      const routeSource = map.getSource('route-path');
-      if (routeSource) {
-        if (route && route.found && route.pathNodes && route.pathNodes.length >= 2) {
-          const coords = route.pathNodes.map((n) => n.coordinates);
-          routeSource.setData({
-            type: 'FeatureCollection',
-            features: [
-              {
+              return {
                 type: 'Feature',
                 geometry: {
                   type: 'LineString',
+                  coordinates: validCoords,
+                },
+                properties: {
+                  id: e.id,
+                  name: e.name,
+                  blocked: Boolean(e.blocked),
+                  speedLimit: e.speedLimit || 50,
+                  distance: e.distance || 100,
+                },
+              };
+            })
+            .filter(Boolean);
+
+          roadSource.setData({
+            type: 'FeatureCollection',
+            features: roadFeatures,
+          });
+        }
+
+        const nodeSource = map.getSource('road-nodes');
+        if (nodeSource && graph?.nodes) {
+          const nodeFeatures = graph.nodes
+            .map((n) => {
+              const coords = getNodeCoordinates(n);
+              if (!coords) return null;
+              return {
+                type: 'Feature',
+                geometry: {
+                  type: 'Point',
                   coordinates: coords,
                 },
-                properties: {},
-              },
-            ],
+                properties: {
+                  id: n.id,
+                  name: n.name,
+                  isStart: n.id === startNodeId,
+                  isTarget: n.id === targetNodeId,
+                },
+              };
+            })
+            .filter(Boolean);
+
+          nodeSource.setData({
+            type: 'FeatureCollection',
+            features: nodeFeatures,
           });
-        } else {
-          routeSource.setData({ type: 'FeatureCollection', features: [] });
         }
+
+        const routeSource = map.getSource('route-path');
+        if (routeSource) {
+          if (route && route.found && route.pathNodes && route.pathNodes.length >= 2) {
+            const coords = route.pathNodes
+              .map((n) => getNodeCoordinates(n))
+              .filter((c) => Array.isArray(c) && c.length === 2 && !isNaN(c[0]) && !isNaN(c[1]));
+
+            if (coords.length >= 2) {
+              routeSource.setData({
+                type: 'FeatureCollection',
+                features: [
+                  {
+                    type: 'Feature',
+                    geometry: {
+                      type: 'LineString',
+                      coordinates: coords,
+                    },
+                    properties: {},
+                  },
+                ],
+              });
+
+              // Automatically focus map on the computed route
+              try {
+                const bounds = coords.reduce(
+                  (b, c) => b.extend(c),
+                  new mapboxgl.LngLatBounds(coords[0], coords[0])
+                );
+                map.fitBounds(bounds, { padding: 75, maxZoom: 16.5, duration: 800 });
+              } catch (fitErr) {
+                // Ignore camera adjustment error
+              }
+            } else {
+              routeSource.setData({ type: 'FeatureCollection', features: [] });
+            }
+          } else {
+            routeSource.setData({ type: 'FeatureCollection', features: [] });
+          }
+        }
+      } catch (err) {
+        console.error('Error updating Mapbox layers:', err);
       }
     },
     [mapLoaded, startNodeId, targetNodeId]
@@ -761,10 +825,26 @@ export default function RealMapView() {
       }
 
       if (result && result.found) {
+        // Guarantee pathNodes has valid coordinates and numbers
+        if (result.pathNodes) {
+          result.pathNodes = result.pathNodes
+            .map((n) => {
+              const coords = getNodeCoordinates(n);
+              if (!coords) return null;
+              return {
+                ...n,
+                x: coords[0],
+                y: coords[1],
+                coordinates: coords,
+              };
+            })
+            .filter(Boolean);
+        }
+
         setRouteResult(result);
         addToast(
           `Optimal path computed: ${result.totalDistance}m (~${Math.round(
-            result.estimatedTravelTime
+            result.estimatedTravelTime || 0
           )}s ETA)!`,
           'success'
         );
@@ -846,39 +926,55 @@ export default function RealMapView() {
       return;
     }
 
-    const pathCoords = routeResult.pathNodes.map((n) => n.coordinates);
+    const pathCoords = (routeResult.pathNodes || [])
+      .map((n) => getNodeCoordinates(n))
+      .filter((c) => Array.isArray(c) && c.length === 2 && !isNaN(c[0]) && !isNaN(c[1]));
 
-    if (!vehicleMarkerRef.current) {
-      const el = document.createElement('div');
-      el.className = 'custom-vehicle-marker';
-      el.innerHTML = `
-        <div style="
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          width: 32px;
-          height: 32px;
-          border-radius: 50%;
-          background: #0f172a;
-          border: 2px solid #00f0ff;
-          box-shadow: 0 0 15px rgba(0, 240, 255, 0.8);
-          transform: translate(-50%, -50%);
-          font-size: 16px;
-        ">
-          ${
-            vehicleType === 'AMBULANCE'
-              ? '🚑'
-              : vehicleType === 'FIRE_TRUCK'
-              ? '🚒'
-              : vehicleType === 'POLICE'
-              ? '🚓'
-              : '🚗'
-          }
-        </div>
-      `;
-      vehicleMarkerRef.current = new mapboxgl.Marker(el)
-        .setLngLat(pathCoords[0])
-        .addTo(map);
+    if (pathCoords.length < 2) {
+      if (vehicleMarkerRef.current) {
+        vehicleMarkerRef.current.remove();
+        vehicleMarkerRef.current = null;
+      }
+      return;
+    }
+
+    try {
+      if (!vehicleMarkerRef.current) {
+        const el = document.createElement('div');
+        el.className = 'custom-vehicle-marker';
+        el.innerHTML = `
+          <div style="
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 34px;
+            height: 34px;
+            border-radius: 50%;
+            background: #0f172a;
+            border: 2px solid #00f0ff;
+            box-shadow: 0 0 16px rgba(0, 240, 255, 0.9);
+            transform: translate(-50%, -50%);
+            font-size: 18px;
+          ">
+            ${
+              vehicleType === 'AMBULANCE'
+                ? '🚑'
+                : vehicleType === 'FIRE_TRUCK'
+                ? '🚒'
+                : vehicleType === 'POLICE'
+                ? '🚓'
+                : '🚗'
+            }
+          </div>
+        `;
+        vehicleMarkerRef.current = new mapboxgl.Marker(el)
+          .setLngLat(pathCoords[0])
+          .addTo(map);
+      } else {
+        vehicleMarkerRef.current.setLngLat(pathCoords[0]);
+      }
+    } catch (markerErr) {
+      console.warn('Marker creation error:', markerErr);
     }
 
     if (!isDriving) return;
