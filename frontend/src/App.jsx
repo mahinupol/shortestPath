@@ -3,6 +3,7 @@ import { SimulationProvider, useSimulation } from './context/SimulationContext';
 import TopNavbar from './components/TopNavbar';
 import NotificationToastContainer from './components/NotificationToastContainer';
 import DashboardView from './views/DashboardView';
+import RealMapView from './views/RealMapView';
 import SimulationView from './views/SimulationView';
 import EmergencyView from './views/EmergencyView';
 import TrafficView from './views/TrafficView';
@@ -52,6 +53,7 @@ function MainContent() {
       {/* Main View Router */}
       <main className="flex-1 p-4 lg:p-6 max-w-[1700px] w-full mx-auto">
         {activeTab === 'dashboard' && <DashboardView />}
+        {activeTab === 'realmap' && <RealMapView />}
         {activeTab === 'simulation' && <SimulationView />}
         {activeTab === 'emergency' && <EmergencyView />}
         {activeTab === 'traffic' && <TrafficView />}

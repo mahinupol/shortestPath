@@ -173,6 +173,15 @@ export const api = {
     return handleResponse(res);
   },
 
+  async calculateDynamicRoute(payload) {
+    const res = await fetch(`${BASE_URL}/routes/calculate-graph`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    return handleResponse(res);
+  },
+
   // Analytics
   async getAnalytics() {
     const res = await fetch(`${BASE_URL}/analytics`);

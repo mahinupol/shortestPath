@@ -1,7 +1,10 @@
 package com.smartcity.service;
 
 import com.smartcity.algorithm.Graph;
+import com.smartcity.algorithm.GraphEdge;
+import com.smartcity.algorithm.GraphNode;
 import com.smartcity.algorithm.PathResult;
+import com.smartcity.dto.DynamicGraphRouteRequest;
 import com.smartcity.dto.RouteCalculationRequest;
 import com.smartcity.patterns.strategy.DijkstraStrategy;
 import com.smartcity.patterns.strategy.EmergencyPriorityRouteStrategy;
@@ -51,6 +54,38 @@ public class RouteService {
                     "A* Route computed: " + request.getSourceNodeId() + " -> " + request.getTargetNodeId()
                             + " via " + strategy.getStrategyName() + " (" + result.getTotalDistance() + "m)",
                     request.getSourceNodeId() + "-" + request.getTargetNodeId());
+        }
+
+        return result;
+    }
+
+    public PathResult calculateDynamicRoute(DynamicGraphRouteRequest request) {
+        if (request == null || request.getSourceNodeId() == null || request.getTargetNodeId() == null) {
+            throw new IllegalArgumentException("Source and target nodes must be provided.");
+        }
+
+        String strategyKey = request.getStrategy() != null ? request.getStrategy().toUpperCase() : (request.isEmergency() ? "EMERGENCY" : "FASTEST");
+        RouteStrategy strategy = strategies.getOrDefault(strategyKey, strategies.get("FASTEST"));
+
+        Graph dynamicGraph = new Graph();
+        if (request.getNodes() != null) {
+            for (GraphNode node : request.getNodes()) {
+                dynamicGraph.addNode(node);
+            }
+        }
+        if (request.getEdges() != null) {
+            for (GraphEdge edge : request.getEdges()) {
+                dynamicGraph.addEdge(edge);
+            }
+        }
+
+        long startTime = System.nanoTime();
+        PathResult result = strategy.calculateRoute(dynamicGraph, request.getSourceNodeId(), request.getTargetNodeId());
+        long elapsedNanos = System.nanoTime() - startTime;
+        double elapsedMs = Math.round((elapsedNanos / 1_000_000.0) * 100.0) / 100.0;
+
+        if (result.isFound()) {
+            result.setMessage(result.getMessage() + " [Dynamic Graph Solved in " + elapsedMs + "ms]");
         }
 
         return result;

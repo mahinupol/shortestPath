@@ -20,4 +20,9 @@ public class RouteController {
     public ResponseEntity<PathResult> calculateRoute(@RequestBody RouteCalculationRequest request) {
         return ResponseEntity.ok(routeService.calculateRoute(request));
     }
+
+    @PostMapping("/calculate-graph")
+    public ResponseEntity<PathResult> calculateDynamicRoute(@RequestBody com.smartcity.dto.DynamicGraphRouteRequest request) {
+        return ResponseEntity.ok(routeService.calculateDynamicRoute(request));
+    }
 }

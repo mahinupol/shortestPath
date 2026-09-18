@@ -28,9 +28,29 @@ public class GraphNode {
 
     public double distanceTo(GraphNode other) {
         if (other == null) return 0.0;
+        // Check if coordinates appear to be geographic (lat/long in degrees)
+        if (Math.abs(this.x) <= 180.0 && Math.abs(this.y) <= 90.0 &&
+            Math.abs(other.x) <= 180.0 && Math.abs(other.y) <= 90.0 &&
+            (this.x != 0.0 || this.y != 0.0)) {
+            return haversineDistanceMeters(other);
+        }
         double dx = this.x - other.x;
         double dy = this.y - other.y;
         return Math.sqrt(dx * dx + dy * dy);
+    }
+
+    public double haversineDistanceMeters(GraphNode other) {
+        if (other == null) return 0.0;
+        double R = 6371000.0; // Earth's mean radius in meters
+        double dLat = Math.toRadians(other.y - this.y);
+        double dLon = Math.toRadians(other.x - this.x);
+        double lat1 = Math.toRadians(this.y);
+        double lat2 = Math.toRadians(other.y);
+
+        double a = Math.sin(dLat / 2.0) * Math.sin(dLat / 2.0) +
+                   Math.sin(dLon / 2.0) * Math.sin(dLon / 2.0) * Math.cos(lat1) * Math.cos(lat2);
+        double c = 2.0 * Math.atan2(Math.sqrt(a), Math.sqrt(1.0 - a));
+        return R * c;
     }
 
     public String getId() {

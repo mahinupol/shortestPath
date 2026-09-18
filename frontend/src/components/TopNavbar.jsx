@@ -30,6 +30,7 @@ export default function TopNavbar() {
 
   const tabs = [
     { id: 'dashboard', label: 'Command Center', icon: Activity },
+    { id: 'realmap', label: 'Real Map (Mapbox)', icon: MapPin },
     { id: 'simulation', label: 'Simulation Grid', icon: Car },
     { id: 'emergency', label: 'Emergency Matrix', icon: Siren },
     { id: 'traffic', label: 'Traffic & Bottlenecks', icon: AlertTriangle },

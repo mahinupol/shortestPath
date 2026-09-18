@@ -15,7 +15,8 @@ export default function SimulationView() {
     setSelectedRoad, 
     setSelectedNode, 
     refreshCityData,
-    addToast 
+    addToast,
+    setActiveTab 
   } = useSimulation();
 
   const [activeRosterTab, setActiveRosterTab] = useState('vehicles'); // 'vehicles' or 'roads'
@@ -60,6 +61,26 @@ export default function SimulationView() {
 
       {/* Side Roster & Spawn Controls */}
       <div className="lg:col-span-4 h-full flex flex-col space-y-4 overflow-hidden">
+        {/* Real Map Navigator Quick Banner */}
+        <div 
+          onClick={() => setActiveTab('realmap')}
+          className="p-3 rounded-2xl bg-gradient-to-r from-cyan-950/60 to-blue-950/60 border border-cyan-500/40 hover:border-cyan-400 cursor-pointer transition-all shadow-lg shadow-cyan-500/10 flex items-center justify-between group"
+        >
+          <div className="flex items-center space-x-2.5">
+            <div className="w-8 h-8 rounded-xl bg-cyan-500/20 border border-cyan-500/40 flex items-center justify-center text-cyan-300 group-hover:scale-105 transition-transform">
+              <Navigation className="w-4 h-4" />
+            </div>
+            <div>
+              <h4 className="text-xs font-bold text-white font-mono flex items-center space-x-1.5">
+                <span>Real Map Navigator</span>
+                <span className="text-[9px] px-1 rounded bg-cyan-500/20 text-cyan-300">Mapbox</span>
+              </h4>
+              <p className="text-[10px] text-slate-400">Draw rectangles to navigate real streets</p>
+            </div>
+          </div>
+          <span className="text-xs font-mono text-cyan-400 group-hover:translate-x-1 transition-transform">➔</span>
+        </div>
+
         {/* Spawn Vehicle Card */}
         <div className="p-4 rounded-2xl bg-slate-900/80 border border-slate-800 shadow-xl backdrop-blur-md">
           <h3 className="font-bold text-xs uppercase font-mono tracking-wider text-white flex items-center space-x-2 mb-2.5">
