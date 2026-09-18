@@ -1,0 +1,58 @@
+package com.smartcity.service;
+
+import com.smartcity.algorithm.Graph;
+import com.smartcity.algorithm.PathResult;
+import com.smartcity.dto.RouteCalculationRequest;
+import com.smartcity.patterns.strategy.DijkstraStrategy;
+import com.smartcity.patterns.strategy.EmergencyPriorityRouteStrategy;
+import com.smartcity.patterns.strategy.FastestTimeStrategy;
+import com.smartcity.patterns.strategy.RouteStrategy;
+import com.smartcity.patterns.strategy.ShortestDistanceStrategy;
+import com.smartcity.simulation.SimulationEngine;
+import org.springframework.stereotype.Service;
+
+import java.util.HashMap;
+import java.util.Map;
+
+@Service
+public class RouteService {
+
+    private final SimulationEngine simulationEngine;
+    private final Map<String, RouteStrategy> strategies = new HashMap<>();
+
+    public RouteService(SimulationEngine simulationEngine) {
+        this.simulationEngine = simulationEngine;
+        RouteStrategy fastest = new FastestTimeStrategy();
+        RouteStrategy shortest = new ShortestDistanceStrategy();
+        RouteStrategy dijkstra = new DijkstraStrategy();
+        RouteStrategy emergency = new EmergencyPriorityRouteStrategy();
+
+        strategies.put("FASTEST", fastest);
+        strategies.put("ASTAR", fastest);
+        strategies.put("ASTAR_TRAFFIC", fastest);
+        strategies.put("DIJKSTRA", dijkstra);
+        strategies.put("SHORTEST", shortest);
+        strategies.put("EMERGENCY", emergency);
+    }
+
+    public PathResult calculateRoute(RouteCalculationRequest request) {
+        if (request == null || request.getSourceNodeId() == null || request.getTargetNodeId() == null) {
+            throw new IllegalArgumentException("Source and target intersections must be provided.");
+        }
+
+        String strategyKey = request.getStrategy() != null ? request.getStrategy().toUpperCase() : (request.isEmergency() ? "EMERGENCY" : "FASTEST");
+        RouteStrategy strategy = strategies.getOrDefault(strategyKey, strategies.get("FASTEST"));
+
+        Graph graph = simulationEngine.getCity().getGraph();
+        PathResult result = strategy.calculateRoute(graph, request.getSourceNodeId(), request.getTargetNodeId());
+
+        if (result.isFound()) {
+            simulationEngine.logEvent("ROUTE_CALCULATED",
+                    "A* Route computed: " + request.getSourceNodeId() + " -> " + request.getTargetNodeId()
+                            + " via " + strategy.getStrategyName() + " (" + result.getTotalDistance() + "m)",
+                    request.getSourceNodeId() + "-" + request.getTargetNodeId());
+        }
+
+        return result;
+    }
+}
