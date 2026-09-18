@@ -43,6 +43,20 @@ public class AStarAlgorithm {
      * @return PathResult with traversed nodes, edges, distance, and travel time
      */
     public PathResult findPath(Graph graph, String sourceId, String targetId, boolean isEmergency) {
+        return findPath(graph, sourceId, targetId, isEmergency, false);
+    }
+
+    /**
+     * Finds the optimal path from source to target node using A* algorithm.
+     *
+     * @param graph        The city graph
+     * @param sourceId     Origin node ID
+     * @param targetId     Destination node ID
+     * @param isEmergency  Whether emergency priority routing is applied
+     * @param pureDistance Whether to calculate strictly based on physical distance (ignoring traffic congestion)
+     * @return PathResult with traversed nodes, edges, distance, and travel time
+     */
+    public PathResult findPath(Graph graph, String sourceId, String targetId, boolean isEmergency, boolean pureDistance) {
         if (graph == null) {
             return PathResult.notFound("City graph is not initialized.");
         }
@@ -114,8 +128,8 @@ public class AStarAlgorithm {
                     continue;
                 }
 
-                // Calculate edge traversal cost factoring in distance and traffic congestion
-                double edgeCost = edge.calculateCost(isEmergency);
+                // Calculate edge traversal cost (pure physical distance or traffic-weighted)
+                double edgeCost = pureDistance ? edge.getDistance() : edge.calculateCost(isEmergency);
                 double tentativeGScore = current.gScore + edgeCost;
 
                 Double knownGScore = gScores.get(neighborId);

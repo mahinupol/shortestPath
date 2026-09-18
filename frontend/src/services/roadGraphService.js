@@ -309,7 +309,10 @@ function bridgeDisconnectedComponents(nodes, edges, startEdgeCounter) {
         }
       }
 
-      if (bestA && bestB) {
+      // Only bridge components if the gap is a small street intersection gap (<= 35m).
+      // Never bridge across hundreds of meters of solid building blocks!
+      const MAX_STREET_BRIDGE_DISTANCE = 35;
+      if (bestA && bestB && bestDist <= MAX_STREET_BRIDGE_DISTANCE) {
         const bridgeId = `BRIDGE_${edgeCount++}`;
         edges.push({
           id: `${bridgeId}_fwd`,
@@ -607,13 +610,12 @@ export function solveAStar(nodes, edges, startNodeId, targetNodeId, isEmergency 
       const neighbor = nodeMap.get(edge.targetNodeId);
       if (!neighbor) continue;
 
+      // Physical distance cost (emergency vehicles consider siren traffic bypass)
       let costMultiplier = 1.0;
-      if (edge.trafficLevel === 'MEDIUM') costMultiplier = 1.3;
-      if (edge.trafficLevel === 'HIGH') costMultiplier = 1.8;
-      if (edge.trafficLevel === 'CRITICAL') costMultiplier = 2.5;
-
       if (isEmergency) {
-        costMultiplier = 1.0 + (costMultiplier - 1.0) * 0.4;
+        if (edge.trafficLevel === 'MEDIUM') costMultiplier = 1.1;
+        if (edge.trafficLevel === 'HIGH') costMultiplier = 1.3;
+        if (edge.trafficLevel === 'CRITICAL') costMultiplier = 1.6;
       }
 
       const tentativeG = current.gScore + edge.distance * costMultiplier;

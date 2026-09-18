@@ -31,10 +31,10 @@ public class RouteService {
         RouteStrategy emergency = new EmergencyPriorityRouteStrategy();
 
         strategies.put("FASTEST", fastest);
-        strategies.put("ASTAR", fastest);
+        strategies.put("ASTAR", shortest);
+        strategies.put("SHORTEST", shortest);
         strategies.put("ASTAR_TRAFFIC", fastest);
         strategies.put("DIJKSTRA", dijkstra);
-        strategies.put("SHORTEST", shortest);
         strategies.put("EMERGENCY", emergency);
     }
 
@@ -43,8 +43,8 @@ public class RouteService {
             throw new IllegalArgumentException("Source and target intersections must be provided.");
         }
 
-        String strategyKey = request.getStrategy() != null ? request.getStrategy().toUpperCase() : (request.isEmergency() ? "EMERGENCY" : "FASTEST");
-        RouteStrategy strategy = strategies.getOrDefault(strategyKey, strategies.get("FASTEST"));
+        String strategyKey = request.getStrategy() != null ? request.getStrategy().toUpperCase() : (request.isEmergency() ? "EMERGENCY" : "ASTAR");
+        RouteStrategy strategy = strategies.getOrDefault(strategyKey, strategies.get("ASTAR"));
 
         Graph graph = simulationEngine.getCity().getGraph();
         PathResult result = strategy.calculateRoute(graph, request.getSourceNodeId(), request.getTargetNodeId());
@@ -64,8 +64,8 @@ public class RouteService {
             throw new IllegalArgumentException("Source and target nodes must be provided.");
         }
 
-        String strategyKey = request.getStrategy() != null ? request.getStrategy().toUpperCase() : (request.isEmergency() ? "EMERGENCY" : "FASTEST");
-        RouteStrategy strategy = strategies.getOrDefault(strategyKey, strategies.get("FASTEST"));
+        String strategyKey = request.getStrategy() != null ? request.getStrategy().toUpperCase() : (request.isEmergency() ? "EMERGENCY" : "ASTAR");
+        RouteStrategy strategy = strategies.getOrDefault(strategyKey, strategies.get("ASTAR"));
 
         Graph dynamicGraph = new Graph();
         if (request.getNodes() != null) {

@@ -604,10 +604,12 @@ function getNodeCoordinates(node) {
         const clickedNodeId = nodeFeatures[0].properties.id;
         if (pickMode === 'START') {
           setStartNodeId(clickedNodeId);
+          setRouteResult(null);
           setPickMode(null);
-          addToast(`Start node set to ${clickedNodeId}`, 'success');
+          addToast(`Start waypoint set to ${clickedNodeId}`, 'success');
         } else if (pickMode === 'TARGET') {
           setTargetNodeId(clickedNodeId);
+          setRouteResult(null);
           setPickMode(null);
           addToast(`Destination set to ${clickedNodeId}`, 'success');
         } else {
@@ -616,6 +618,7 @@ function getNodeCoordinates(node) {
             setRouteResult(null);
           } else {
             setTargetNodeId(clickedNodeId);
+            setRouteResult(null);
           }
         }
         return;
@@ -1305,7 +1308,10 @@ function getNodeCoordinates(node) {
                 </label>
                 <select
                   value={startNodeId}
-                  onChange={(e) => setStartNodeId(e.target.value)}
+                  onChange={(e) => {
+                    setStartNodeId(e.target.value);
+                    setRouteResult(null);
+                  }}
                   className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2 py-1.5 text-xs text-emerald-300 font-mono truncate"
                 >
                   {graphData.nodes.map((n) => (
@@ -1333,7 +1339,10 @@ function getNodeCoordinates(node) {
                 </label>
                 <select
                   value={targetNodeId}
-                  onChange={(e) => setTargetNodeId(e.target.value)}
+                  onChange={(e) => {
+                    setTargetNodeId(e.target.value);
+                    setRouteResult(null);
+                  }}
                   className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2 py-1.5 text-xs text-rose-300 font-mono truncate"
                 >
                   {graphData.nodes.map((n) => (

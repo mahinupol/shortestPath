@@ -39,6 +39,10 @@ public class DijkstraAlgorithm {
      * @return PathResult with path nodes, edges, distance, and travel time
      */
     public PathResult findPath(Graph graph, String sourceId, String targetId, boolean isEmergency) {
+        return findPath(graph, sourceId, targetId, isEmergency, true);
+    }
+
+    public PathResult findPath(Graph graph, String sourceId, String targetId, boolean isEmergency, boolean pureDistance) {
         if (graph == null) {
             return PathResult.notFound("City graph is not initialized.");
         }
@@ -98,7 +102,7 @@ public class DijkstraAlgorithm {
                     continue;
                 }
 
-                double edgeCost = edge.calculateCost(isEmergency);
+                double edgeCost = pureDistance ? edge.getDistance() : edge.calculateCost(isEmergency);
                 double newDist = current.distance + edgeCost;
 
                 Double knownDist = distances.get(neighborId);

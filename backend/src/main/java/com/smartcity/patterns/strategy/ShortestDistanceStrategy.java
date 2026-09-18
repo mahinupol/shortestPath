@@ -12,7 +12,7 @@ public class ShortestDistanceStrategy implements RouteStrategy {
 
     @Override
     public PathResult calculateRoute(Graph graph, String sourceId, String destinationId) {
-        PathResult result = aStarAlgorithm.findPath(graph, sourceId, destinationId, false);
+        PathResult result = aStarAlgorithm.findPath(graph, sourceId, destinationId, false, true);
         result.setStrategy(getStrategyName());
         return result;
     }
