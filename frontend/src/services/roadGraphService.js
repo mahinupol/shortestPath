@@ -531,8 +531,25 @@ export function solveAStar(nodes, edges, startNodeId, targetNodeId, isEmergency 
   const adjMap = new Map();
 
   edges.forEach((edge) => {
+    // Forward direction (going path)
     if (!adjMap.has(edge.sourceNodeId)) adjMap.set(edge.sourceNodeId, []);
     adjMap.get(edge.sourceNodeId).push(edge);
+
+    // Reverse direction (coming path) - count every road as going and coming path
+    if (!adjMap.has(edge.targetNodeId)) adjMap.set(edge.targetNodeId, []);
+    const hasRev = adjMap.get(edge.targetNodeId).some(
+      (e) => e.targetNodeId === edge.sourceNodeId
+    );
+    if (!hasRev) {
+      const revGeom = edge.geometry && Array.isArray(edge.geometry) ? [...edge.geometry].reverse() : null;
+      adjMap.get(edge.targetNodeId).push({
+        ...edge,
+        id: `${edge.id}_twoway_rev`,
+        sourceNodeId: edge.targetNodeId,
+        targetNodeId: edge.sourceNodeId,
+        geometry: revGeom,
+      });
+    }
   });
 
   const startNode = nodeMap.get(startNodeId);
@@ -673,8 +690,25 @@ export function solveDijkstra(nodes, edges, startNodeId, targetNodeId) {
   const adjMap = new Map();
 
   edges.forEach((edge) => {
+    // Forward direction (going path)
     if (!adjMap.has(edge.sourceNodeId)) adjMap.set(edge.sourceNodeId, []);
     adjMap.get(edge.sourceNodeId).push(edge);
+
+    // Reverse direction (coming path) - count every road as going and coming path
+    if (!adjMap.has(edge.targetNodeId)) adjMap.set(edge.targetNodeId, []);
+    const hasRev = adjMap.get(edge.targetNodeId).some(
+      (e) => e.targetNodeId === edge.sourceNodeId
+    );
+    if (!hasRev) {
+      const revGeom = edge.geometry && Array.isArray(edge.geometry) ? [...edge.geometry].reverse() : null;
+      adjMap.get(edge.targetNodeId).push({
+        ...edge,
+        id: `${edge.id}_twoway_rev`,
+        sourceNodeId: edge.targetNodeId,
+        targetNodeId: edge.sourceNodeId,
+        geometry: revGeom,
+      });
+    }
   });
 
   const startNode = nodeMap.get(startNodeId);

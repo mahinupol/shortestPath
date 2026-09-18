@@ -76,6 +76,16 @@ public class RouteService {
         if (request.getEdges() != null) {
             for (GraphEdge edge : request.getEdges()) {
                 dynamicGraph.addEdge(edge);
+
+                // Ensure every road segment counts as both a going and coming path
+                String revId = edge.getId() + "_twoway_rev";
+                if (!edge.getId().endsWith("_rev") && dynamicGraph.getEdge(revId) == null) {
+                    GraphEdge rev = new GraphEdge(revId, edge.getName(), edge.getTargetNodeId(), edge.getSourceNodeId(),
+                            edge.getDistance(), edge.getSpeedLimit(), edge.getLanes());
+                    rev.setBlocked(edge.isBlocked());
+                    rev.setTrafficLevel(edge.getTrafficLevel());
+                    dynamicGraph.addEdge(rev);
+                }
             }
         }
 
