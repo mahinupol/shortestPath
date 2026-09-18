@@ -8,6 +8,7 @@ import {
   generateSyntheticRealRoadGrid,
   solveAStar,
   solveDijkstra,
+  fetchMapboxDirectionsRoute,
   haversineDistanceMeters,
   CITY_PRESETS,
 } from '../services/roadGraphService';
@@ -34,11 +35,23 @@ import {
   RefreshCw,
   Search,
   Sparkles,
+  X,
+  ExternalLink,
 } from 'lucide-react';
 
 const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN || '';
-
 mapboxgl.accessToken = MAPBOX_TOKEN;
+
+// Quick search locations
+const POPULAR_LOCATIONS = [
+  { name: 'Dhanmondi, Dhaka', query: 'Dhanmondi, Dhaka, Bangladesh' },
+  { name: 'Gulshan 2, Dhaka', query: 'Gulshan 2, Dhaka, Bangladesh' },
+  { name: 'Shahbagh, Dhaka', query: 'Shahbagh, Dhaka, Bangladesh' },
+  { name: 'Banani, Dhaka', query: 'Banani, Dhaka, Bangladesh' },
+  { name: 'Times Square, NYC', query: 'Times Square, Manhattan, New York' },
+  { name: 'Shibuya, Tokyo', query: 'Shibuya, Tokyo, Japan' },
+  { name: 'Westminster, London', query: 'Westminster, London, UK' },
+];
 
 export default function RealMapView() {
   const mapContainerRef = useRef(null);
@@ -71,16 +84,18 @@ export default function RealMapView() {
   const [selectedRoad, setSelectedRoad] = useState(null);
 
   // Vehicle Animation state
-  const [vehicleType, setVehicleType] = useState('AMBULANCE'); // 'CAR' | 'AMBULANCE' | 'FIRE_TRUCK' | 'POLICE'
+  const [vehicleType, setVehicleType] = useState('AMBULANCE');
   const [isDriving, setIsDriving] = useState(false);
   const [driveProgress, setDriveProgress] = useState(0);
   const [driveSpeedMultiplier, setDriveSpeedMultiplier] = useState(1);
   const animFrameRef = useRef(null);
   const vehicleMarkerRef = useRef(null);
 
-  // Search input
+  // Location Search & Autocomplete
   const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState([]);
   const [isSearching, setIsSearching] = useState(false);
+  const [showSearchDropdown, setShowSearchDropdown] = useState(false);
 
   // Initialize Mapbox map
   useEffect(() => {
@@ -105,9 +120,7 @@ export default function RealMapView() {
       mapRef.current = map;
       setMapLoaded(true);
 
-      // Add Sources and Layers for interactive bounding box, roads, nodes, and route
       initMapLayers(map, initialPreset.defaultBbox);
-      // Auto-extract roads for initial preset
       extractRoads(initialPreset.defaultBbox, map);
     });
 
@@ -119,7 +132,7 @@ export default function RealMapView() {
     };
   }, []);
 
-  // Handle map style changes
+  // Handle style changes
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapLoaded) return;
@@ -131,7 +144,7 @@ export default function RealMapView() {
   }, [mapStyle]);
 
   /**
-   * Initializes all GeoJSON sources and styling layers on the Mapbox instance.
+   * Initializes all GeoJSON sources and styling layers on Mapbox.
    */
   const initMapLayers = (map, bbox) => {
     if (!map) return;
@@ -143,7 +156,6 @@ export default function RealMapView() {
         data: bboxToPolygonGeoJSON(bbox),
       });
 
-      // Translucent cyan fill
       map.addLayer({
         id: 'selection-bbox-fill',
         type: 'fill',
@@ -154,7 +166,6 @@ export default function RealMapView() {
         },
       });
 
-      // Neon glowing dashed border
       map.addLayer({
         id: 'selection-bbox-line',
         type: 'line',
@@ -174,7 +185,6 @@ export default function RealMapView() {
         data: { type: 'FeatureCollection', features: [] },
       });
 
-      // Road background glow
       map.addLayer({
         id: 'road-network-glow',
         type: 'line',
@@ -192,7 +202,6 @@ export default function RealMapView() {
         },
       });
 
-      // Road inner line
       map.addLayer({
         id: 'road-network-line',
         type: 'line',
@@ -218,7 +227,6 @@ export default function RealMapView() {
         data: { type: 'FeatureCollection', features: [] },
       });
 
-      // Route Outer Glow
       map.addLayer({
         id: 'route-path-glow',
         type: 'line',
@@ -227,12 +235,11 @@ export default function RealMapView() {
         paint: {
           'line-color': '#10b981',
           'line-width': 8,
-          'line-opacity': 0.5,
+          'line-opacity': 0.6,
           'line-blur': 3,
         },
       });
 
-      // Route Inner Neon Core
       map.addLayer({
         id: 'route-path-core',
         type: 'line',
@@ -253,7 +260,6 @@ export default function RealMapView() {
         data: { type: 'FeatureCollection', features: [] },
       });
 
-      // Intersections Circle
       map.addLayer({
         id: 'road-nodes-circle',
         type: 'circle',
@@ -270,10 +276,10 @@ export default function RealMapView() {
           'circle-color': [
             'case',
             ['get', 'isStart'],
-            '#10b981', // Emerald start
+            '#10b981',
             ['get', 'isTarget'],
-            '#f43f5e', // Rose target
-            '#0ea5e9', // Sky normal
+            '#f43f5e',
+            '#0ea5e9',
           ],
           'circle-stroke-width': 2,
           'circle-stroke-color': '#ffffff',
@@ -281,7 +287,6 @@ export default function RealMapView() {
         },
       });
 
-      // Intersections Text Labels
       map.addLayer({
         id: 'road-nodes-labels',
         type: 'symbol',
@@ -302,7 +307,7 @@ export default function RealMapView() {
   };
 
   /**
-   * Helper: Converts [minLng, minLat, maxLng, maxLat] to GeoJSON polygon
+   * Helper: Converts bbox to GeoJSON polygon
    */
   const bboxToPolygonGeoJSON = (bbox) => {
     if (!bbox || bbox.length !== 4) {
@@ -333,24 +338,22 @@ export default function RealMapView() {
   };
 
   /**
-   * Synchronizes Graph data, Route geometry, and Nodes to Mapbox layers.
+   * Synchronizes Graph, Route, and Nodes to Mapbox layers.
    */
   const updateMapLayers = useCallback(
     (graph, route, bbox) => {
       const map = mapRef.current;
       if (!map || !mapLoaded) return;
 
-      // Update Bbox
       const bboxSource = map.getSource('selection-bbox');
       if (bboxSource) {
         bboxSource.setData(bboxToPolygonGeoJSON(bbox));
       }
 
-      // Update Roads
       const roadSource = map.getSource('road-network');
       if (roadSource && graph?.edges) {
         const roadFeatures = graph.edges
-          .filter((e) => !e.id.endsWith('_rev')) // Only render forward direction to prevent double-line overlapping
+          .filter((e) => !e.id.endsWith('_rev'))
           .map((e) => ({
             type: 'Feature',
             geometry: {
@@ -372,7 +375,6 @@ export default function RealMapView() {
         });
       }
 
-      // Update Nodes
       const nodeSource = map.getSource('road-nodes');
       if (nodeSource && graph?.nodes) {
         const nodeFeatures = graph.nodes.map((n) => ({
@@ -395,7 +397,6 @@ export default function RealMapView() {
         });
       }
 
-      // Update Route
       const routeSource = map.getSource('route-path');
       if (routeSource) {
         if (route && route.found && route.pathNodes && route.pathNodes.length >= 2) {
@@ -422,7 +423,7 @@ export default function RealMapView() {
   );
 
   /**
-   * Extracts roads and builds graph for a given bounding box.
+   * Extracts roads and builds connected graph for any bounding box (large or small).
    */
   const extractRoads = useCallback(
     (bbox, mapInstance = mapRef.current) => {
@@ -433,14 +434,13 @@ export default function RealMapView() {
         try {
           let graph = extractRoadGraphFromMap(mapInstance, bbox);
 
-          // If extracted roads are too sparse, guarantee rich connectivity with real-coordinate grid
-          if (!graph || graph.nodes.length < 4) {
+          // If extracted roads are too sparse, guarantee rich connectivity with real GPS grid
+          if (!graph || graph.nodes.length < 2) {
             graph = generateSyntheticRealRoadGrid(bbox);
           }
 
           setGraphData(graph);
 
-          // Set default start and target nodes
           if (graph.nodes.length >= 2) {
             setStartNodeId(graph.nodes[0].id);
             setTargetNodeId(graph.nodes[graph.nodes.length - 1].id);
@@ -449,7 +449,7 @@ export default function RealMapView() {
           setRouteResult(null);
           updateMapLayers(graph, null, bbox);
           addToast(
-            `Extracted ${graph.nodes.length} intersections and ${graph.edges.length / 2} real road segments!`,
+            `Extracted ${graph.nodes.length} intersections and ${graph.edges.length / 2} connected street segments!`,
             'success'
           );
         } catch (err) {
@@ -460,18 +460,17 @@ export default function RealMapView() {
         } finally {
           setIsExtractingRoads(false);
         }
-      }, 300);
+      }, 250);
     },
     [addToast, updateMapLayers]
   );
 
-  // Synchronize layer data when graph, route, or nodes change
   useEffect(() => {
     updateMapLayers(graphData, routeResult, activeBbox);
   }, [graphData, routeResult, activeBbox, updateMapLayers]);
 
   /**
-   * Rectangle Drawing Events on Mapbox
+   * Rectangle Drawing Events on Mapbox (Accepts small rectangles as well!)
    */
   useEffect(() => {
     const map = mapRef.current;
@@ -515,9 +514,11 @@ export default function RealMapView() {
       const minLat = Math.min(start[1], currentLngLat[1]);
       const maxLat = Math.max(start[1], currentLngLat[1]);
 
-      // Check minimum drag distance to prevent accidental tiny clicks
-      if (Math.abs(maxLng - minLng) < 0.002 || Math.abs(maxLat - minLat) < 0.002) {
-        addToast('Please drag a larger rectangle across the map.', 'warning');
+      // Accept small rectangles! Only ignore accidental zero-pixel clicks (under 10 meters)
+      if (Math.abs(maxLng - minLng) < 0.00008 && Math.abs(maxLat - minLat) < 0.00008) {
+        setIsDrawingRect(false);
+        map.dragPan.enable();
+        map.getCanvas().style.cursor = '';
         return;
       }
 
@@ -527,15 +528,13 @@ export default function RealMapView() {
       map.dragPan.enable();
       map.getCanvas().style.cursor = '';
 
-      addToast('Bounding rectangle defined. Extracting real road network...', 'info');
+      addToast('Bounding rectangle defined. Extracting connected road network...', 'info');
       extractRoads(finalBbox, map);
     };
 
-    // Node & Road Click Handlers
     const onClick = (e) => {
       if (isDrawingRect) return;
 
-      // Check if user clicked an intersection node
       const nodeFeatures = map.queryRenderedFeatures(e.point, { layers: ['road-nodes-circle'] });
       if (nodeFeatures.length > 0) {
         const clickedNodeId = nodeFeatures[0].properties.id;
@@ -548,7 +547,6 @@ export default function RealMapView() {
           setPickMode(null);
           addToast(`Destination set to ${clickedNodeId}`, 'success');
         } else {
-          // Default click sets start or target
           if (!startNodeId || (startNodeId && targetNodeId)) {
             setStartNodeId(clickedNodeId);
             setRouteResult(null);
@@ -559,7 +557,6 @@ export default function RealMapView() {
         return;
       }
 
-      // Check if user clicked a road segment
       const roadFeatures = map.queryRenderedFeatures(e.point, { layers: ['road-network-line'] });
       if (roadFeatures.length > 0) {
         const clickedRoadId = roadFeatures[0].properties.id;
@@ -594,7 +591,7 @@ export default function RealMapView() {
       setIsDrawingRect(true);
       map.dragPan.disable();
       map.getCanvas().style.cursor = 'crosshair';
-      addToast('Draw Mode Active: Click and drag across any streets on the map!', 'info');
+      addToast('Draw Mode Active: Drag any rectangle across streets (small or large)!', 'info');
     } else {
       setIsDrawingRect(false);
       map.dragPan.enable();
@@ -603,7 +600,7 @@ export default function RealMapView() {
   };
 
   /**
-   * Handle City Preset Change
+   * Handle City Preset Selection
    */
   const handleSelectCity = (presetId) => {
     const preset = CITY_PRESETS.find((p) => p.id === presetId);
@@ -625,45 +622,76 @@ export default function RealMapView() {
   };
 
   /**
-   * Search location geocoding
+   * Search location geocoding with instant fly-to and auto-bounding box
    */
-  const handleSearch = async (e) => {
-    e.preventDefault();
-    if (!searchQuery.trim() || !mapRef.current) return;
+  const handleLocationSearch = async (queryText) => {
+    const query = queryText || searchQuery;
+    if (!query.trim() || !mapRef.current) return;
     setIsSearching(true);
+    setShowSearchDropdown(false);
 
     try {
       const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(
-        searchQuery
-      )}.json?access_token=${MAPBOX_TOKEN}&limit=1`;
+        query
+      )}.json?access_token=${MAPBOX_TOKEN}&limit=5`;
       const res = await fetch(url);
       const data = await res.json();
 
       if (data.features && data.features.length > 0) {
-        const [lng, lat] = data.features[0].center;
-        const d = 0.01;
-        const newBbox = [lng - d, lat - d * 0.8, lng + d, lat + d * 0.8];
+        const place = data.features[0];
+        const [lng, lat] = place.center;
+        const dLng = 0.008;
+        const dLat = 0.006;
+        const newBbox = [lng - dLng, lat - dLat, lng + dLng, lat + dLat];
 
-        mapRef.current.flyTo({ center: [lng, lat], zoom: 15, pitch: 35 });
+        mapRef.current.flyTo({ center: [lng, lat], zoom: 15.5, pitch: 35 });
         setActiveBbox(newBbox);
 
         mapRef.current.once('moveend', () => {
           extractRoads(newBbox, mapRef.current);
         });
 
-        addToast(`Navigated to ${data.features[0].place_name}`, 'success');
+        addToast(`Navigated to ${place.text || place.place_name}`, 'success');
       } else {
-        addToast('No location found for search query.', 'warning');
+        addToast('No location found for this search.', 'warning');
       }
     } catch (err) {
-      addToast('Location search failed.', 'danger');
+      addToast('Location search failed. Check connection.', 'danger');
     } finally {
       setIsSearching(false);
     }
   };
 
   /**
-   * Calculate Route (Calls backend API with client-side fallback)
+   * Autocomplete live suggestions as user types
+   */
+  const handleSearchInputChange = async (e) => {
+    const val = e.target.value;
+    setSearchQuery(val);
+
+    if (val.trim().length >= 3) {
+      try {
+        const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(
+          val
+        )}.json?access_token=${MAPBOX_TOKEN}&limit=4`;
+        const res = await fetch(url);
+        const data = await res.json();
+        if (data.features) {
+          setSearchResults(data.features);
+          setShowSearchDropdown(true);
+        }
+      } catch {
+        setSearchResults([]);
+      }
+    } else {
+      setSearchResults([]);
+      setShowSearchDropdown(false);
+    }
+  };
+
+  /**
+   * Robust Shortest-Path Calculation
+   * Checks Spring Boot API, local A-Star / Dijkstra with snapping, and Mapbox Directions fallback to GUARANTEE a valid route!
    */
   const handleCalculateRoute = async () => {
     if (!startNodeId || !targetNodeId) {
@@ -672,29 +700,45 @@ export default function RealMapView() {
     }
 
     if (startNodeId === targetNodeId) {
-      addToast('Start and Destination are the same node.', 'warning');
+      addToast('Start and Destination are identical.', 'warning');
       return;
     }
 
     setIsCalculating(true);
     const isEmergency = algorithm === 'EMERGENCY';
 
-    try {
-      // 1. Attempt Spring Boot Backend Dynamic Graph API
-      const payload = {
-        nodes: graphData.nodes,
-        edges: graphData.edges,
-        sourceNodeId: startNodeId,
-        targetNodeId: targetNodeId,
-        strategy: algorithm,
-        isEmergency,
-      };
+    const startNode = graphData.nodes.find((n) => n.id === startNodeId);
+    const targetNode = graphData.nodes.find((n) => n.id === targetNodeId);
 
-      let result;
+    if (!startNode || !targetNode) {
+      addToast('Selected nodes not found in active graph.', 'warning');
+      setIsCalculating(false);
+      return;
+    }
+
+    try {
+      let result = null;
+
+      // 1. Try Spring Boot Backend Dynamic Graph API
       try {
-        result = await api.calculateDynamicRoute(payload);
+        const payload = {
+          nodes: graphData.nodes,
+          edges: graphData.edges,
+          sourceNodeId: startNodeId,
+          targetNodeId: targetNodeId,
+          strategy: algorithm,
+          isEmergency,
+        };
+        const backendRes = await api.calculateDynamicRoute(payload);
+        if (backendRes && backendRes.found) {
+          result = backendRes;
+        }
       } catch (backendErr) {
-        // 2. Client-Side High-Speed Fallback Solver
+        console.warn('Backend API evaluation failed, trying local engine:', backendErr);
+      }
+
+      // 2. Local A* / Dijkstra evaluation if backend didn't return a route
+      if (!result || !result.found) {
         if (algorithm === 'DIJKSTRA') {
           result = solveDijkstra(graphData.nodes, graphData.edges, startNodeId, targetNodeId);
         } else {
@@ -702,18 +746,37 @@ export default function RealMapView() {
         }
       }
 
+      // 3. Guaranteed Route Fallback: Mapbox Directions API
+      // If local graph segments were disconnected, fetch the real-world street route
+      if (!result || !result.found) {
+        addToast('Bridging street gap via real-world driving corridor...', 'info');
+        const mapboxRoute = await fetchMapboxDirectionsRoute(
+          startNode.coordinates,
+          targetNode.coordinates,
+          MAPBOX_TOKEN
+        );
+        if (mapboxRoute && mapboxRoute.found) {
+          result = mapboxRoute;
+        }
+      }
+
       if (result && result.found) {
         setRouteResult(result);
         addToast(
-          `Shortest Route computed (${result.totalDistance}m, ${result.nodesEvaluated || result.nodeIds.length} nodes evaluated)!`,
+          `Optimal path computed: ${result.totalDistance}m (~${Math.round(
+            result.estimatedTravelTime
+          )}s ETA)!`,
           'success'
         );
       } else {
         setRouteResult(null);
-        addToast(result?.message || 'No path found between selected nodes.', 'danger');
+        addToast(
+          result?.message || 'Could not find a path between these points.',
+          'danger'
+        );
       }
     } catch (err) {
-      addToast(err.message || 'Path calculation error.', 'danger');
+      addToast(err.message || 'Route calculation error.', 'danger');
     } finally {
       setIsCalculating(false);
     }
@@ -724,7 +787,11 @@ export default function RealMapView() {
    */
   const handleToggleBlockRoad = (roadId) => {
     const updatedEdges = graphData.edges.map((e) => {
-      if (e.id === roadId || e.id === roadId.replace('_fwd', '_rev') || e.id === roadId.replace('_rev', '_fwd')) {
+      if (
+        e.id === roadId ||
+        e.id === roadId.replace('_fwd', '_rev') ||
+        e.id === roadId.replace('_rev', '_fwd')
+      ) {
         return { ...e, blocked: !e.blocked };
       }
       return e;
@@ -739,11 +806,11 @@ export default function RealMapView() {
     addToast(
       isNowBlocked
         ? `Road ${selectedRoad?.name || roadId} BLOCKED (Accident simulated)!`
-        : `Road ${selectedRoad?.name || roadId} unblocked.`,
+        : `Road ${selectedRoad?.name || roadId} restored.`,
       isNowBlocked ? 'warning' : 'success'
     );
 
-    // Auto-recalculate if active route used this road
+    // Dynamic bypass recalculation
     if (routeResult?.found && startNodeId && targetNodeId) {
       setTimeout(() => {
         handleCalculateRoute();
@@ -781,7 +848,6 @@ export default function RealMapView() {
 
     const pathCoords = routeResult.pathNodes.map((n) => n.coordinates);
 
-    // Create custom vehicle DOM element
     if (!vehicleMarkerRef.current) {
       const el = document.createElement('div');
       el.className = 'custom-vehicle-marker';
@@ -819,7 +885,6 @@ export default function RealMapView() {
 
     let startTime = null;
     const totalDistance = routeResult.totalDistance || 1000;
-    // Base duration in seconds based on distance and speed multiplier
     const totalDurationMs = Math.max(3000, (totalDistance / 25) * 1000) / driveSpeedMultiplier;
 
     const animate = (timestamp) => {
@@ -828,14 +893,12 @@ export default function RealMapView() {
       const progress = Math.min(1, elapsed / totalDurationMs);
       setDriveProgress(progress);
 
-      // Interpolate along coordinates
       const totalSegments = pathCoords.length - 1;
       const currentSegmentIndex = Math.min(
         totalSegments - 1,
         Math.floor(progress * totalSegments)
       );
-      const segmentProgress =
-        progress * totalSegments - currentSegmentIndex;
+      const segmentProgress = progress * totalSegments - currentSegmentIndex;
 
       const pStart = pathCoords[currentSegmentIndex];
       const pEnd = pathCoords[currentSegmentIndex + 1];
@@ -863,10 +926,10 @@ export default function RealMapView() {
   }, [isDriving, routeResult, driveSpeedMultiplier, vehicleType, addToast]);
 
   return (
-    <div className="flex flex-col space-y-4 h-[calc(100vh-130px)] min-h-[700px]">
-      {/* Top Header & Preset Toolbar */}
-      <div className="flex flex-wrap items-center justify-between gap-3 p-3 rounded-2xl bg-slate-900/80 border border-slate-800 backdrop-blur-md">
-        {/* Title & Brand */}
+    <div className="flex flex-col space-y-3 h-[calc(100vh-125px)] min-h-[720px]">
+      {/* 1. Global Navigation & Location Search Bar */}
+      <div className="flex flex-wrap items-center justify-between gap-2.5 p-3 rounded-2xl bg-slate-900/85 border border-slate-800 backdrop-blur-md">
+        {/* Left: Brand & Title */}
         <div className="flex items-center space-x-3">
           <div className="w-9 h-9 rounded-xl bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center text-cyan-400 shadow-md shadow-cyan-500/10">
             <MapPin className="w-5 h-5" />
@@ -879,15 +942,75 @@ export default function RealMapView() {
               </span>
             </h2>
             <p className="text-xs text-slate-400">
-              Draw bounding rectangles to extract real street networks and execute shortest-path sorting algorithms
+              Draw any rectangle (small or large) across real streets to calculate shortest path routes
             </p>
           </div>
         </div>
 
-        {/* City Presets & Search */}
-        <div className="flex flex-wrap items-center gap-2">
+        {/* Center: Prominent Location Search Box with Autocomplete */}
+        <div className="relative flex-1 max-w-md min-w-[280px]">
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              handleLocationSearch();
+            }}
+            className="flex items-center bg-slate-950/80 border border-cyan-500/30 hover:border-cyan-400/60 focus-within:border-cyan-400 rounded-xl px-3 py-1.5 shadow-inner transition-colors"
+          >
+            <Search className="w-4 h-4 text-cyan-400 mr-2 flex-shrink-0" />
+            <input
+              type="text"
+              placeholder="Search any location or street in Dhaka or worldwide..."
+              value={searchQuery}
+              onChange={handleSearchInputChange}
+              onFocus={() => searchResults.length > 0 && setShowSearchDropdown(true)}
+              className="bg-transparent text-slate-100 text-xs focus:outline-none w-full font-mono placeholder:text-slate-500"
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSearchQuery('');
+                  setSearchResults([]);
+                  setShowSearchDropdown(false);
+                }}
+                className="text-slate-400 hover:text-white mr-1.5"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
+            <button
+              type="submit"
+              disabled={isSearching}
+              className="px-2 py-1 rounded bg-cyan-500 hover:bg-cyan-400 text-slate-950 text-[10px] font-mono font-extrabold uppercase transition-all shadow-sm"
+            >
+              {isSearching ? '...' : 'Search'}
+            </button>
+          </form>
+
+          {/* Autocomplete Dropdown */}
+          {showSearchDropdown && searchResults.length > 0 && (
+            <div className="absolute top-full left-0 right-0 mt-1 bg-slate-900/95 border border-slate-700 rounded-xl shadow-2xl z-50 overflow-hidden backdrop-blur-md">
+              {searchResults.map((item) => (
+                <div
+                  key={item.id}
+                  onClick={() => {
+                    setSearchQuery(item.place_name);
+                    handleLocationSearch(item.place_name);
+                  }}
+                  className="px-3 py-2 text-xs text-slate-200 hover:bg-cyan-500/20 hover:text-cyan-200 cursor-pointer border-b border-slate-800/60 last:border-0 flex items-center space-x-2 transition-colors font-mono"
+                >
+                  <MapPin className="w-3.5 h-3.5 text-cyan-400 flex-shrink-0" />
+                  <span className="truncate">{item.place_name}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Right: Presets & Styles */}
+        <div className="flex items-center space-x-2">
           {/* City Presets Dropdown */}
-          <div className="flex items-center space-x-1.5 bg-slate-950/70 border border-slate-800 rounded-xl px-2.5 py-1.5 text-xs">
+          <div className="flex items-center space-x-1 bg-slate-950/70 border border-slate-800 rounded-xl px-2 py-1 text-xs">
             <Compass className="w-3.5 h-3.5 text-cyan-400" />
             <select
               value={selectedCity}
@@ -902,31 +1025,14 @@ export default function RealMapView() {
             </select>
           </div>
 
-          {/* Search Location Form */}
-          <form onSubmit={handleSearch} className="flex items-center bg-slate-950/70 border border-slate-800 rounded-xl px-2.5 py-1 text-xs">
-            <Search className="w-3.5 h-3.5 text-slate-400 mr-1.5" />
-            <input
-              type="text"
-              placeholder="Search any city or address..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="bg-transparent text-slate-200 text-xs focus:outline-none w-44 font-mono"
-            />
-            <button
-              type="submit"
-              disabled={isSearching}
-              className="text-[10px] uppercase font-bold text-cyan-400 hover:text-cyan-300 font-mono ml-1"
-            >
-              Go
-            </button>
-          </form>
-
-          {/* Map Style Selector */}
+          {/* Map Style Switcher */}
           <div className="flex items-center bg-slate-950/70 border border-slate-800 rounded-xl p-1 text-xs">
             <button
               onClick={() => setMapStyle('mapbox://styles/mapbox/dark-v11')}
               className={`px-2 py-1 rounded-lg text-[10px] font-mono transition-all ${
-                mapStyle.includes('dark') ? 'bg-cyan-500/20 text-cyan-300 font-bold border border-cyan-500/40' : 'text-slate-400 hover:text-white'
+                mapStyle.includes('dark')
+                  ? 'bg-cyan-500/20 text-cyan-300 font-bold border border-cyan-500/40'
+                  : 'text-slate-400 hover:text-white'
               }`}
             >
               Dark
@@ -934,7 +1040,9 @@ export default function RealMapView() {
             <button
               onClick={() => setMapStyle('mapbox://styles/mapbox/navigation-night-v1')}
               className={`px-2 py-1 rounded-lg text-[10px] font-mono transition-all ${
-                mapStyle.includes('navigation') ? 'bg-cyan-500/20 text-cyan-300 font-bold border border-cyan-500/40' : 'text-slate-400 hover:text-white'
+                mapStyle.includes('navigation')
+                  ? 'bg-cyan-500/20 text-cyan-300 font-bold border border-cyan-500/40'
+                  : 'text-slate-400 hover:text-white'
               }`}
             >
               Night
@@ -942,7 +1050,9 @@ export default function RealMapView() {
             <button
               onClick={() => setMapStyle('mapbox://styles/mapbox/satellite-streets-v12')}
               className={`px-2 py-1 rounded-lg text-[10px] font-mono transition-all ${
-                mapStyle.includes('satellite') ? 'bg-cyan-500/20 text-cyan-300 font-bold border border-cyan-500/40' : 'text-slate-400 hover:text-white'
+                mapStyle.includes('satellite')
+                  ? 'bg-cyan-500/20 text-cyan-300 font-bold border border-cyan-500/40'
+                  : 'text-slate-400 hover:text-white'
               }`}
             >
               Satellite
@@ -951,13 +1061,33 @@ export default function RealMapView() {
         </div>
       </div>
 
-      {/* Main Grid Viewport */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 flex-1 min-h-0">
+      {/* Quick Location Tags */}
+      <div className="flex items-center space-x-2 px-1 overflow-x-auto scrollbar-none py-0.5">
+        <span className="text-[10px] uppercase font-mono text-slate-400 whitespace-nowrap flex items-center space-x-1">
+          <Sparkles className="w-3 h-3 text-cyan-400" />
+          <span>Quick Fly:</span>
+        </span>
+        {POPULAR_LOCATIONS.map((loc) => (
+          <button
+            key={loc.name}
+            onClick={() => {
+              setSearchQuery(loc.query);
+              handleLocationSearch(loc.query);
+            }}
+            className="px-2.5 py-0.5 rounded-full bg-slate-900/90 hover:bg-cyan-500/20 border border-slate-800 hover:border-cyan-500/40 text-slate-300 hover:text-cyan-300 text-[11px] font-mono whitespace-nowrap transition-all"
+          >
+            {loc.name}
+          </button>
+        ))}
+      </div>
+
+      {/* 2. Main Grid Viewport */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-3.5 flex-1 min-h-0">
         {/* Mapbox Canvas Viewport (8 Columns) */}
         <div className="lg:col-span-8 relative rounded-2xl overflow-hidden border border-slate-800 bg-[#070b14] shadow-2xl flex flex-col">
-          {/* Top Map Floating Action Bar */}
+          {/* Top Map Action Bar */}
           <div className="absolute top-3 left-3 z-10 flex flex-wrap items-center gap-2">
-            {/* Draw Rectangle Mode Button */}
+            {/* Draw Rectangle Mode Button (Small rectangles accepted!) */}
             <button
               onClick={handleToggleDrawRect}
               className={`flex items-center space-x-1.5 px-3 py-2 rounded-xl text-xs font-mono font-bold shadow-lg transition-all ${
@@ -970,20 +1100,20 @@ export default function RealMapView() {
               <span>{isDrawingRect ? 'DRAGGING ACTIVE...' : 'DRAW RECTANGLE'}</span>
             </button>
 
-            {/* Refresh / Re-extract Road Graph */}
+            {/* Scan / Refresh Roads */}
             <button
               onClick={() => extractRoads(activeBbox)}
               disabled={isExtractingRoads}
               className="flex items-center space-x-1.5 px-3 py-2 rounded-xl bg-slate-900/90 hover:bg-slate-800 text-slate-200 border border-slate-700 text-xs font-mono shadow-lg"
             >
               <RefreshCw className={`w-3.5 h-3.5 text-cyan-400 ${isExtractingRoads ? 'animate-spin' : ''}`} />
-              <span>SCAN ROADS</span>
+              <span>RE-SCAN ROADS</span>
             </button>
 
             {/* Randomize Waypoints */}
             <button
               onClick={handleRandomizeWaypoints}
-              className="flex items-center space-x-1 px-2.5 py-2 rounded-xl bg-slate-900/90 hover:bg-slate-800 text-slate-300 border border-slate-700 text-xs font-mono"
+              className="flex items-center space-x-1 px-2.5 py-2 rounded-xl bg-slate-900/90 hover:bg-slate-800 text-slate-300 border border-slate-700 text-xs font-mono shadow-lg"
             >
               <Sparkles className="w-3.5 h-3.5 text-amber-400" />
               <span>RANDOM PINS</span>
@@ -995,7 +1125,7 @@ export default function RealMapView() {
             <div className="absolute top-16 left-3 right-3 z-10 bg-amber-500/95 text-slate-950 text-xs px-4 py-2 rounded-xl font-mono font-bold flex items-center justify-between shadow-2xl animate-fade-in">
               <div className="flex items-center space-x-2">
                 <Crosshair className="w-4 h-4" />
-                <span>Click and drag on the map to define the road navigation boundary!</span>
+                <span>Drag any size box across streets — small blocks & intersections fully accepted!</span>
               </div>
               <button
                 onClick={() => setIsDrawingRect(false)}
@@ -1020,18 +1150,18 @@ export default function RealMapView() {
               <span className="text-slate-600">|</span>
               <span className="text-emerald-400 font-bold">
                 {activeBbox
-                  ? `${(
+                  ? `${Math.round(
                       haversineDistanceMeters(
                         [activeBbox[0], activeBbox[1]],
                         [activeBbox[2], activeBbox[1]]
-                      ) / 1000
-                    ).toFixed(2)} km × ${(
+                      )
+                    )}m × ${Math.round(
                       haversineDistanceMeters(
                         [activeBbox[0], activeBbox[1]],
                         [activeBbox[0], activeBbox[3]]
-                      ) / 1000
-                    ).toFixed(2)} km`
-                  : '0 km'}
+                      )
+                    )}m`
+                  : '0m'}
               </span>
               <span className="text-slate-400">Sector</span>
             </div>
@@ -1052,7 +1182,7 @@ export default function RealMapView() {
         </div>
 
         {/* Right Sidebar: Algorithm & Navigation Controls (4 Columns) */}
-        <div className="lg:col-span-4 flex flex-col space-y-3.5 overflow-y-auto pr-1">
+        <div className="lg:col-span-4 flex flex-col space-y-3 overflow-y-auto pr-1">
           {/* 1. Path Calculation Card */}
           <div className="p-4 rounded-2xl bg-slate-900/80 border border-slate-800 shadow-xl backdrop-blur-md">
             <h3 className="font-bold text-xs uppercase font-mono tracking-wider text-white flex items-center space-x-2 mb-3">
@@ -1069,7 +1199,9 @@ export default function RealMapView() {
                     type="button"
                     onClick={() => setPickMode(pickMode === 'START' ? null : 'START')}
                     className={`text-[9px] px-1 rounded ${
-                      pickMode === 'START' ? 'bg-emerald-500 text-slate-950 font-bold' : 'text-emerald-400 hover:underline'
+                      pickMode === 'START'
+                        ? 'bg-emerald-500 text-slate-950 font-bold'
+                        : 'text-emerald-400 hover:underline'
                     }`}
                   >
                     {pickMode === 'START' ? 'Click Map' : 'Pick on Map'}
@@ -1078,7 +1210,7 @@ export default function RealMapView() {
                 <select
                   value={startNodeId}
                   onChange={(e) => setStartNodeId(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2 py-1.5 text-xs text-emerald-300 font-mono"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2 py-1.5 text-xs text-emerald-300 font-mono truncate"
                 >
                   {graphData.nodes.map((n) => (
                     <option key={n.id} value={n.id}>
@@ -1095,7 +1227,9 @@ export default function RealMapView() {
                     type="button"
                     onClick={() => setPickMode(pickMode === 'TARGET' ? null : 'TARGET')}
                     className={`text-[9px] px-1 rounded ${
-                      pickMode === 'TARGET' ? 'bg-rose-500 text-white font-bold' : 'text-rose-400 hover:underline'
+                      pickMode === 'TARGET'
+                        ? 'bg-rose-500 text-white font-bold'
+                        : 'text-rose-400 hover:underline'
                     }`}
                   >
                     {pickMode === 'TARGET' ? 'Click Map' : 'Pick on Map'}
@@ -1104,7 +1238,7 @@ export default function RealMapView() {
                 <select
                   value={targetNodeId}
                   onChange={(e) => setTargetNodeId(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2 py-1.5 text-xs text-rose-300 font-mono"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2 py-1.5 text-xs text-rose-300 font-mono truncate"
                 >
                   {graphData.nodes.map((n) => (
                     <option key={n.id} value={n.id}>
@@ -1165,7 +1299,7 @@ export default function RealMapView() {
             </button>
           </div>
 
-          {/* 2. Vehicle Driving & Simulation Console */}
+          {/* 2. Vehicle Driving & Navigation Console */}
           {routeResult?.found && (
             <div className="p-4 rounded-2xl bg-slate-900/80 border border-slate-800 shadow-xl backdrop-blur-md">
               <h3 className="font-bold text-xs uppercase font-mono tracking-wider text-white flex items-center justify-between mb-3">
@@ -1228,7 +1362,6 @@ export default function RealMapView() {
                   <span>{isDriving ? 'PAUSE' : 'START DRIVE'}</span>
                 </button>
 
-                {/* Speed Multiplier Toggle */}
                 {[1, 2, 5].map((spd) => (
                   <button
                     key={spd}
